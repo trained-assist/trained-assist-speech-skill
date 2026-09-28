@@ -1,0 +1,17 @@
+{
+  "name": "trained-assist-speech-skill",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Speech / speech-to-text domain skill (speech_transcribe) — MCP server mounted by trained-assist-agent as the speech-skills sibling",
+  "main": "src/mcp-skills/index.js",
+  "scripts": {
+    "check": "node -e \"require('fs').readdirSync('src/mcp-skills/tools').forEach(f => require('./src/mcp-skills/tools/'+f))\" && node --check src/mcp-skills/index.js",
+    "test": "node --test tests/",
+    "build:manifest": "node scripts/build-manifest.cjs",
+    "manifest": "node scripts/build-manifest.cjs",
+    "manifest:check": "node scripts/build-manifest.cjs --check"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

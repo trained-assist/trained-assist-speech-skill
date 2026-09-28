@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: check + contract tests + manifests + core MCP contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - name: Require/load every MCP tool
+        run: npm run check
+      - name: Contract + unit tests (loopback only, no keys)
+        run: npm test
+      - name: Manifests match the tool registry
+        run: npm run manifest:check
+      # The MCP contract trained-assist-agent's deploy.sh checks before it moves this
+      # sibling checkout in prod. deploy.sh additionally runs check-skill-schedule.js
+      # (this repo ships an action-provider-manifest.json with no schedule blocks).
+      - uses: actions/checkout@v4
+        with:
+          repository: trained-assist/trained-assist-agent
+          path: .core
+      - name: Core MCP contract (deploy gate)
+        run: node .core/scripts/check-mcp-conformance.js .
+      - name: Core schedule contract (deploy gate)
+        run: node .core/scripts/check-skill-schedule.js .
+      - name: Core skill contract (shape of a skill repo)
+        run: node .core/scripts/check-skill-contract.js .
