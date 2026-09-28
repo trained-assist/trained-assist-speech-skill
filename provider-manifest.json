@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "providerId": "speech",
+  "actions": [
+    {
+      "name": "speech_transcribe",
+      "description": "Распознать речь в аудио (голосовое/аудиофайл/запись звонка) в текст. Принимает локальный путь, http(s)-ссылку или публичную ссылку Яндекс.Диска. Возвращает {text, duration, language, cost_hint}. Только аудио: видео-контейнер отклоняется (video декодирует video_analyze_batch в ядре). Требует ключ Deepgram (speech_set_key).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Локальный путь к аудиофайлу, прямой http(s)-URL или публичная ссылка Яндекс.Диска. Видео-контейнеры (.mp4 .mkv .mov …) не поддерживаются."
+          },
+          "language": {
+            "type": "string",
+            "description": "Язык распознавания (ru/en/…) или \"auto\" для авто-определения. Дефолт ru."
+          },
+          "model": {
+            "type": "string",
+            "description": "Зарезервировано. Ф0 закреплён на nova-2; другое значение → типизированная ошибка feature_disabled."
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Зарезервировано под Ф2 (словарь терминов). В Ф0 непустой список → типизированная ошибка feature_disabled."
+          },
+          "diarize": {
+            "type": "boolean",
+            "description": "Зарезервировано под Ф1 (роли говорящих). В Ф0 diarize:true → типизированная ошибка feature_disabled."
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "speech_set_key",
+      "description": "Сохранить API-ключ Deepgram для распознавания речи (нужен для speech_transcribe). Задаётся один раз, переживает сессии. Ключ хранится только на сервере (файл 0o600 в директории юзера), не в коде и не в ответах.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Deepgram API key (токен)."
+          }
+        },
+        "required": [
+          "key"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "speech_status",
+      "description": "Состояние сервиса распознавания речи: есть ли ключ Deepgram и журнал последних вызовов (только метаданные: время/длительность/длина текста/ошибка — без самого текста). Вызывай, когда нужно проверить, готов ли speech_transcribe к работе.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    }
+  ]
+}

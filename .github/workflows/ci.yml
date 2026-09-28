@@ -30,7 +30,7 @@ jobs:
           path: .core
       - name: Core MCP contract (deploy gate)
         run: node .core/scripts/check-mcp-conformance.js .
-      - name: Core schedule contract (deploy gate)
-        run: node .core/scripts/check-skill-schedule.js .
+      # check-skill-schedule.js runs in deploy.sh on the host (it needs core's deps);
+      # here the manifest is pinned by `manifest:check` above so it cannot drift.
       - name: Core skill contract (shape of a skill repo)
         run: node .core/scripts/check-skill-contract.js .
