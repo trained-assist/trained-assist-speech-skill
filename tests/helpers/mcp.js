@@ -28,7 +28,7 @@ async function startMcp({ env = {} } = {}) {
       let msg;
       try { msg = JSON.parse(line); } catch { continue; }
       const p = pending.get(msg.id);
-      if (p) { pending.delete(msg.id); p(msg); }
+      if (p) { pending.delete(msg.id); p.resolve(msg); }
     }
   });
   child.stderr.on('data', (d) => { stderr += d; });
@@ -41,7 +41,10 @@ async function startMcp({ env = {} } = {}) {
   const call = (method, params) => new Promise((resolve, reject) => {
     const id = nextId++;
     const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out; stderr: ${stderr.slice(-500)}`)); }, 30000);
-    pending.set(id, (msg) => { clearTimeout(timer); resolve(msg); });
+    pending.set(id, {
+      resolve: (msg) => { clearTimeout(timer); resolve(msg); },
+      reject: (e) => { clearTimeout(timer); reject(e); },
+    });
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
   });
 
