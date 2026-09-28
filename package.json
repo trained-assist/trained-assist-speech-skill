@@ -6,7 +6,7 @@
   "main": "src/mcp-skills/index.js",
   "scripts": {
     "check": "node -e \"require('fs').readdirSync('src/mcp-skills/tools').forEach(f => require('./src/mcp-skills/tools/'+f))\" && node --check src/mcp-skills/index.js",
-    "test": "node --test tests/",
+    "test": "node --test tests/*/*.test.js",
     "build:manifest": "node scripts/build-manifest.cjs",
     "manifest": "node scripts/build-manifest.cjs",
     "manifest:check": "node scripts/build-manifest.cjs --check"
