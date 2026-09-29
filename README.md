@@ -13,7 +13,12 @@
 |---|---|
 | `speech_transcribe` | аудио/файл/ссылка → текст. Deepgram `nova-2`, `language=ru` (de facto), `smart_format=true`. Поля `keywords`/`diarize` зарезервированы под Ф1/Ф2 и **выключены**: при `diarize:true` или непустом `keywords` возвращает типизированную ошибку `feature_disabled` |
 | `speech_set_key` | сохранить ключ Deepgram в `~/agent-tokens/<USER_ID>/deepgram/key.txt` (`0o600`) |
-| `speech_status` | `{key_present, last_calls}` — durable-журнал метаданных вызовов (`calls.json`, без текста) |
+| `speech_status` | `{key_present, key_source, last_calls}` — durable-журнал метаданных вызовов (`calls.json`, без текста) |
+
+Какой ключ берётся (первый непустой): `DEEPGRAM_KEY` (разовый оверрайд) → личный
+`key.txt` профиля → `DEEPGRAM_API_KEY` — общий ключ платформы, который хост передаёт
+MCP-серверу (тем же ключом расшифровываются голосовые на входе). `key_source` =
+`env | profile | platform | null`.
 
 Аудио-only: видео-контейнер → `unsupported_source` (декод видео остаётся в ядре,
 `video_analyze_batch`).

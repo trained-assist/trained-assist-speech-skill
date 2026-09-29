@@ -11,7 +11,7 @@
 // error becomes a JSON-RPC error the model sees as a failure envelope instead of an
 // answer it can act on.
 
-const { writeKey, readKey, readCalls, appendCall } = require('../../deepgram/key-store');
+const { writeKey, readKey, resolveKey, readCalls, appendCall } = require('../../deepgram/key-store');
 const { prepareSource, isTyped } = require('../../audio/source');
 const { isVideoContainer, VIDEO_HINT } = require('../../audio/mime');
 const deepgram = require('../../deepgram/client');
@@ -167,9 +167,12 @@ module.exports = {
         'Вызывай, когда нужно проверить, готов ли speech_transcribe к работе.',
       inputSchema: { type: 'object', properties: {} },
       handler: async () => {
-        const key_present = !!readKey();
+        const { key, source } = resolveKey();
+        const key_present = !!key;
         return {
           key_present,
+          // profile = own key, platform = the host's shared key, env = one-shot override.
+          key_source: source,
           last_calls: readCalls(),
           ...(key_present ? {} : { hint: 'Ключ Deepgram не задан — вызови speech_set_key(key).' }),
         };
