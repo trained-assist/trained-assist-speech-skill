@@ -18,7 +18,7 @@ function defaultBody(text = MUTATED) {
 function startStub(opts = {}) {
   const requests = [];
   const server = http.createServer((req, res) => {
-    requests.push({ method: req.method, url: req.url });
+    requests.push({ method: req.method, url: req.url, authorization: req.headers.authorization || null });
     if (opts.handler) return opts.handler(req, res, requests.length);
     if (req.method === 'POST' && req.url.startsWith('/v1/listen')) {
       req.resume();

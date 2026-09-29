@@ -29,15 +29,29 @@ function callsPath(userId) {
   return path.join(keyDir(userId), 'calls.json');
 }
 
-// DEEPGRAM_KEY is a documented one-shot override (smoke runs) — it never lands on disk.
-function readKey(userId) {
+// Resolution order (first non-empty wins):
+//   1. DEEPGRAM_KEY — documented one-shot override (smoke runs); never lands on disk.
+//   2. the profile's own key file — a user who set a key pays for their own usage.
+//   3. DEEPGRAM_API_KEY — the platform key the host injects into MCP servers (the same
+//      key intake uses for voice messages). Without this fallback the platform advertised
+//      «транскрибация доступна» while speech_transcribe answered key_missing to every
+//      profile that never set a personal key (2026-09-29).
+function resolveKey(userId) {
   const fromEnv = process.env.DEEPGRAM_KEY;
-  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  if (fromEnv && fromEnv.trim()) return { key: fromEnv.trim(), source: 'env' };
   try {
-    return fs.readFileSync(keyPath(userId), 'utf8').trim();
+    const own = fs.readFileSync(keyPath(userId), 'utf8').trim();
+    if (own) return { key: own, source: 'profile' };
   } catch {
-    return '';
+    // no personal key — fall through to the platform key
   }
+  const platform = process.env.DEEPGRAM_API_KEY;
+  if (platform && platform.trim()) return { key: platform.trim(), source: 'platform' };
+  return { key: '', source: null };
+}
+
+function readKey(userId) {
+  return resolveKey(userId).key;
 }
 
 function writeKey(key, userId) {
@@ -77,4 +91,4 @@ function appendCall(entry, userId) {
   }
 }
 
-module.exports = { keyPath, keyDir, readKey, writeKey, readCalls, appendCall, callsPath, CALLS_MAX };
+module.exports = { keyPath, keyDir, readKey, resolveKey, writeKey, readCalls, appendCall, callsPath, CALLS_MAX };
