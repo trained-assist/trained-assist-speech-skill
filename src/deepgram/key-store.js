@@ -9,6 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { tokensRoot } = require('../data-paths');
+const { readCredentialFile, writeCredentialFile } = require('../credential-store');
 
 const CALLS_MAX = 50;
 
@@ -40,7 +41,10 @@ function resolveKey(userId) {
   const fromEnv = process.env.DEEPGRAM_KEY;
   if (fromEnv && fromEnv.trim()) return { key: fromEnv.trim(), source: 'env' };
   try {
-    const own = fs.readFileSync(keyPath(userId), 'utf8').trim();
+    // Credential store: legacy plaintext passes through, a v2 envelope is
+    // decrypted (trained-assist-agent#1939) — a raw readFileSync would hand
+    // back base64 garbage once CRED_ENCRYPTION_KEY is provisioned.
+    const own = readCredentialFile(keyPath(userId)).trim();
     if (own) return { key: own, source: 'profile' };
   } catch {
     // no personal key — fall through to the platform key
@@ -56,8 +60,8 @@ function readKey(userId) {
 
 function writeKey(key, userId) {
   const p = keyPath(userId);
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, String(key).trim(), { encoding: 'utf8', mode: 0o600 });
+  // Encrypted when CRED_ENCRYPTION_KEY is set, plaintext with a warning when not.
+  writeCredentialFile(p, String(key).trim());
   // A permissive umask must not loosen a credential file.
   fs.chmodSync(p, 0o600);
   return p;
