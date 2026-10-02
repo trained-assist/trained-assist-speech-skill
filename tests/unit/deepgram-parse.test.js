@@ -40,4 +40,11 @@ test('mime: video containers by extension, audio content types, magic fallback',
   // no extension → magic bytes
   assert.equal(mime.contentTypeFor('download', Buffer.concat([Buffer.from('OggS'), Buffer.alloc(20)])), 'audio/ogg');
   assert.equal(mime.contentTypeFor('download', Buffer.from('plain text, definitely not audio')), null);
+  // ISO-BMFF (m4a / audio mp4) has no magic at offset 0 — the box header sits at
+  // offset 4. tg-bot#319 stores intake files as an extensionless `data`, so without
+  // this rule a user's .m4a voice memo would be rejected as unsupported_format
+  // instead of being transcribed like it is today (the gateway sends its mime type).
+  assert.equal(mime.contentTypeFor('download', Buffer.concat([
+    Buffer.from([0, 0, 0, 20]), Buffer.from('ftypM4A '), Buffer.alloc(32),
+  ])), 'audio/mp4');
 });

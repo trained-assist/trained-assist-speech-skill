@@ -44,6 +44,11 @@ function magicContentType(buf) {
   if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WAVE') return 'audio/wav';
   if (buf.toString('ascii', 0, 3) === 'ID3') return 'audio/mpeg';
   if (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) return 'audio/mpeg';
+  // ISO-BMFF: "ftyp" is a box TYPE at offset 4, not a magic at offset 0 — so it needs
+  // its own probe. Without it an extensionless m4a (the intake store names every file
+  // `data`) came back null → unsupported_format, dropping voice memos that the old
+  // gateway path transcribed. Same value the .mp4 extension already maps to.
+  if (buf.toString('ascii', 4, 8) === 'ftyp') return 'audio/mp4';
   return null;
 }
 
