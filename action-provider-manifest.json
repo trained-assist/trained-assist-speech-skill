@@ -64,6 +64,40 @@
       "retrySafety": "idempotent"
     },
     {
+      "name": "speech_add_key",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Ещё один Deepgram API key (токен)."
+          }
+        },
+        "required": [
+          "key"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": true,
+      "retrySafety": "unsafe"
+    },
+    {
+      "name": "speech_list_keys",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": true,
+      "retrySafety": "unsafe"
+    },
+    {
       "name": "speech_status",
       "inputSchema": {
         "type": "object",

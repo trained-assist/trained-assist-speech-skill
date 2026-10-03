@@ -50,7 +50,9 @@ function pause(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// One HTTP attempt. Resolves to {status, body, contentType} or {retryable, reason}.
+// One HTTP attempt. Resolves to {status, body, headers} or {retryable, reason}.
+// headers carries the Deepgram quota fields (X-RateLimit-*) so the caller can
+// journal them and rotate to a key with room left.
 function attempt(base, query, key, contentType, buffer) {
   return new Promise((resolve) => {
     const lib = base.protocol === 'http:' ? http : https;
@@ -72,7 +74,7 @@ function attempt(base, query, key, contentType, buffer) {
       res.on('end', () => {
         const status = res.statusCode || 0;
         if (status >= 500) return resolve({ retryable: true, reason: `Deepgram HTTP ${status}` });
-        resolve({ status, body: data });
+        resolve({ status, body: data, headers: res.headers || {} });
       });
       res.on('error', () => resolve({ retryable: true, reason: 'Deepgram: соединение оборвано' }));
     });
@@ -81,6 +83,16 @@ function attempt(base, query, key, contentType, buffer) {
     req.write(buffer);
     req.end();
   });
+}
+
+// Deepgram quota headers → { remaining, resetAt } (unix seconds) or null fields.
+function parseLimitHeaders(headers) {
+  const remaining = headers['x-ratelimit-remaining'] != null ? Number(headers['x-ratelimit-remaining']) : null;
+  const reset = headers['x-ratelimit-reset'] != null ? Number(headers['x-ratelimit-reset']) : null;
+  return {
+    remaining: Number.isFinite(remaining) ? remaining : null,
+    resetAt: Number.isFinite(reset) && reset > 0 ? reset : null,
+  };
 }
 
 // Shape the response exactly as the core engine did.
@@ -120,4 +132,57 @@ async function transcribe({ key, buffer, contentType, language = 'ru', model = '
   return { error: 'upstream_error', hint: `${lastReason} — после ${MAX_ATTEMPTS} попыток.` };
 }
 
-module.exports = { transcribe, apiBase, buildQuery, parseResponse, ATTEMPT_TIMEOUT_MS, MAX_ATTEMPTS };
+// ── Rotation across several keys ──────────────────────────────────────────────
+// Tries the keys in the order the caller supplies (best-quota first). A key that
+// is rejected (401/403) or rate-limited (429) is set aside and the next one tried;
+// a 200 returns immediately. Quota headers are handed back via onLimit so the caller
+// can journal them and rank the keys for the next call.
+//
+// → { text, duration, key, limit } | { error, hint, tried }
+async function transcribeRotated({ keys, buffer, contentType, language = 'ru', model = 'nova-2', onLimit } = {}) {
+  const list = Array.isArray(keys) ? keys.filter(Boolean) : [];
+  if (!list.length) return { error: 'key_missing', hint: 'Ключ Deepgram не задан — вызови speech_set_key(key) и повтори.' };
+  const base = apiBase();
+  const query = buildQuery({ model, language });
+  const tried = [];
+  let lastReason = 'Deepgram недоступен';
+  for (const key of list) {
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      const res = await attempt(base, query, key, contentType, buffer);
+      if (res.retryable) {
+        lastReason = res.reason;
+        if (i < MAX_ATTEMPTS - 1) { await pause(RETRY_PAUSE_MS); continue; }
+        break;
+      }
+      const limit = parseLimitHeaders(res.headers);
+      if (typeof onLimit === 'function') onLimit(key, limit);
+      if (res.status === 200) return { ...parseResponse(res.body), key, limit };
+      if (res.status === 401 || res.status === 403) {
+        tried.push({ key, status: res.status });
+        lastReason = 'Deepgram отклонил ключ (401/403)';
+        break; // this key is dead — try the next one
+      }
+      if (res.status === 429) {
+        tried.push({ key, status: 429 });
+        lastReason = 'Deepgram исчерпал лимит (429)';
+        break; // quota gone — try the next one
+      }
+      if (res.status >= 400) {
+        return { error: 'upstream_error', hint: `Deepgram HTTP ${res.status}: ${String(res.body).slice(0, 200)}`, tried };
+      }
+      return { error: 'upstream_error', hint: `Неожиданный ответ Deepgram: HTTP ${res.status}`, tried };
+    }
+  }
+  return {
+    error: 'upstream_error',
+    hint: list.length > 1
+      ? `${lastReason} — все ${list.length} ключей исчерпаны. Добавь ещё один: speech_set_key(key).`
+      : `${lastReason} — после ${MAX_ATTEMPTS} попыток.`,
+    tried,
+  };
+}
+
+module.exports = {
+  transcribe, transcribeRotated, parseLimitHeaders,
+  apiBase, buildQuery, parseResponse, ATTEMPT_TIMEOUT_MS, MAX_ATTEMPTS,
+};
