@@ -11,7 +11,9 @@
 // error becomes a JSON-RPC error the model sees as a failure envelope instead of an
 // answer it can act on.
 
-const { writeKey, readKey, resolveKey, readCalls, appendCall } = require('../../deepgram/key-store');
+const {
+  writeKey, writeKeys, readKey, resolveKey, resolveKeys, recordLimit, readCalls, appendCall,
+} = require('../../deepgram/key-store');
 const { prepareSource, isTyped } = require('../../audio/source');
 const { isVideoContainer, VIDEO_HINT } = require('../../audio/mime');
 const deepgram = require('../../deepgram/client');
@@ -72,8 +74,8 @@ async function transcribe(args = {}) {
   }
   if (isVideoContainer(source)) return { error: 'unsupported_source', hint: VIDEO_HINT };
 
-  const key = readKey();
-  if (!key) {
+  const { keys } = resolveKeys();
+  if (!keys.length) {
     return { error: 'key_missing', hint: 'Ключ Deepgram не задан — вызови speech_set_key(key) и повтори.' };
   }
 
@@ -83,12 +85,14 @@ async function transcribe(args = {}) {
   const prepared = await prepareSource(source);
   if (isTyped(prepared)) return prepared;
   try {
-    const res = await deepgram.transcribe({
-      key,
+    const res = await deepgram.transcribeRotated({
+      keys,
       buffer: prepared.buffer,
       contentType: prepared.contentType,
       language,
       model,
+      // Journal the quota so the next call ranks the keys by what is left.
+      onLimit: (k, limit) => recordLimit(k, limit),
     });
     if (res.error) {
       recordCall({ ok: false, duration_sec: null, chars: 0, error: res.error });
@@ -111,7 +115,7 @@ module.exports = {
   // Always visible: without the key the user still has to be able to set it,
   // and a missing key must produce a typed error, never "Unknown tool".
   isReady: () => true,
-  setupTools: ['speech_set_key', 'speech_status'],
+  setupTools: ['speech_set_key', 'speech_add_key', 'speech_list_keys', 'speech_status'],
 
   tools: {
     speech_transcribe: {
@@ -145,7 +149,8 @@ module.exports = {
       description:
         'Сохранить API-ключ Deepgram для распознавания речи (нужен для speech_transcribe). ' +
         'Задаётся один раз, переживает сессии. Ключ хранится только на сервере (файл 0o600 в директории юзера), ' +
-        'не в коде и не в ответах.',
+        'не в коде и не в ответах. ВНИМАНИЕ: перезаписывает весь набор ключей — если ключей несколько, ' +
+        'добавляй новый через speech_add_key, а не через этот инструмент.',
       inputSchema: {
         type: 'object',
         properties: { key: { type: 'string', description: 'Deepgram API key (токен).' } },
@@ -156,7 +161,79 @@ module.exports = {
           return { error: 'key_missing', hint: 'Передай key — непустую строку.' };
         }
         const path = writeKey(String(key));
-        return { saved: true, path, hint: 'Ключ сохранён. speech_transcribe готов расшифровывать.' };
+        return { saved: true, path, count: 1, hint: 'Ключ сохранён. speech_transcribe готов расшифровывать.' };
+      },
+    },
+
+    speech_add_key: {
+      description:
+        'Добавить ещё один API-ключ Deepgram к набору, не затирая существующие. При нескольких ключах ' +
+        'расшифровка сама ротирует между ними, выбирая тот, у которого больше свободного лимита ' +
+        '(данные берутся из заголовков X-RateLimit в ответе Deepgram). Добавь второй ключ, когда первый ' +
+        'начал отдавать 429 или уперся в месячный лимит.',
+      inputSchema: {
+        type: 'object',
+        properties: { key: { type: 'string', description: 'Ещё один Deepgram API key (токен).' } },
+        required: ['key'],
+      },
+      handler: async ({ key } = {}) => {
+        const k = String(key || '').trim();
+        if (!k) return { error: 'key_missing', hint: 'Передай key — непустую строку.' };
+        const { readProfileKeys } = require('../../deepgram/key-store');
+        const current = readProfileKeys();
+        if (current.includes(k)) {
+          return { error: 'key_duplicate', hint: 'Этот ключ уже в наборе.', count: current.length };
+        }
+        const next = [...current, k];
+        const path = writeKeys(next);
+        return {
+          saved: true,
+          path,
+          count: next.length,
+          hint: `Ключ добавлен. Теперь ключей: ${next.length} — ротация выбирает тот, где больше лимита.`,
+        };
+      },
+    },
+
+    speech_list_keys: {
+      description:
+        'Показать набор ключей Deepgram профиля и остаток лимита по каждому (только метаданные: номер ' +
+        'ключа в наборе, сколько осталось запросов, когда лимит сбросится — сами ключи никогда не ' +
+        'показываются). Вызывай, чтобы понять, пора ли добавить ключ.',
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => {
+        const { readLimits } = require('../../deepgram/key-store');
+        const { readProfileKeys } = require('../../deepgram/key-store');
+        const keys = readProfileKeys();
+        const limits = readLimits();
+        const { source } = resolveKey();
+        if (!keys.length) {
+          return {
+            count: 0,
+            key_source: source,
+            hint: 'Личных ключей нет — используется платформенный ключ сервера. Добавь свой: speech_add_key(key).',
+          };
+        }
+        const now = Math.floor(Date.now() / 1000);
+        return {
+          count: keys.length,
+          key_source: 'profile',
+          keys: keys.map((_, i) => {
+            const rec = limits[keys[i]] || {};
+            const exhausted = rec.remaining === 0 && rec.reset_at && rec.reset_at > now;
+            return {
+              n: i + 1,
+              remaining: rec.remaining ?? null,
+              reset_at: rec.reset_at ?? null,
+              exhausted: !!exhausted,
+              updated: rec.updated ?? null,
+            };
+          }),
+          summary: keys.length > 1
+            ? `Ключей: ${keys.length}, ротация выбирает ключ с наибольшим остатком лимита.`
+            : 'Ключ один, ротация не используется.',
+          note: 'Сами ключи не выводятся — только номера и состояние лимитов.',
+        };
       },
     },
 
@@ -167,14 +244,17 @@ module.exports = {
         'Вызывай, когда нужно проверить, готов ли speech_transcribe к работе.',
       inputSchema: { type: 'object', properties: {} },
       handler: async () => {
-        const { key, source } = resolveKey();
-        const key_present = !!key;
+        const { keys, source } = resolveKeys();
+        const key_present = keys.length > 0;
         return {
           key_present,
-          // profile = own key, platform = the host's shared key, env = one-shot override.
+          // profile = own keys, platform = the host's shared key, env = one-shot override.
           key_source: source,
+          key_count: keys.length,
+          rotating: keys.length > 1,
           last_calls: readCalls(),
           ...(key_present ? {} : { hint: 'Ключ Deepgram не задан — вызови speech_set_key(key).' }),
+          ...(keys.length > 1 ? { note: `Ключей ${keys.length} — расшифровка ротирует по ним, выбирая где больше лимита.` } : {}),
         };
       },
     },
