@@ -36,3 +36,9 @@ npm run manifest:check
 
 Правила CI: [docs/skill-ci.md](docs/skill-ci.md).
 Сценарий: `docs/user-scenarios/speech/01-speech-transcribe.md` в ядре.
+
+## Documentation ownership
+
+Документы содержат действующие требования, контракты и инструкции. Планы выполнения, статусы, ревью прошлых версий и evidence ведутся в GitHub issues/PR/Project. Целевая модель не является утверждением о текущем deployment; его готовность проверяется по конкретным SHA и приёмке.
+
+Host bindings/credentials and actual deployments are checked separately from this tool contract. Retiring GCP VM is not a new deployment target; migration coordination: https://github.com/trained-assist/trained-agent-architecture/issues/145.
